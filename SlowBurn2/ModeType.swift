@@ -2,7 +2,8 @@ import Foundation
 
 enum ModeType: String, CaseIterable, Identifiable {
     case blur = "Blur"
-    case pixel = "Pixel Freeze"
+    case confetti = "Confetti"
+    case pixelFreeze = "Pixel Freeze"
     case pixelBlackout = "Pixel Blackout"
     case sleepyEmoji = "Sleepy Emoji"
     case distortion = "Distortion"
@@ -15,8 +16,10 @@ enum ModeType: String, CaseIterable, Identifiable {
         switch self {
         case .blur:
             return "Gradual blur effect"
-        case .pixel:
-            return "Randomly freeze pixels"
+        case .confetti:
+            return "Colorful confetti overlay"
+        case .pixelFreeze:
+            return "Freeze pixels with their actual colors"
         case .pixelBlackout:
             return "Randomly black out pixels"
         case .sleepyEmoji:

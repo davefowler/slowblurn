@@ -24,12 +24,12 @@ struct SettingsView: View {
                 // Mode Selection
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Mode")
-            f            .font(.headline)
+                        .font(.headline)
                     
                     Picker("Mode", selection: $blurManager.selectedMode) {
                         ForEach(ModeType.allCases) { mode in
-                            Text(mode.rawValue)
-                                .tag(mode)
+                                Text(mode.rawValue)
+                                    .tag(mode)
                         }
                     }
                     .pickerStyle(.menu)

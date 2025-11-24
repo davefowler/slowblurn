@@ -19,9 +19,21 @@ class BlurManager: ObservableObject {
     private var isTesting: Bool = false
     private var testStartTime: Date?
     @Published var isManualMode: Bool = false
+    private var cancellables = Set<AnyCancellable>()
     
     init() {
         setupOverlayWindow()
+        startMonitoring()
+        
+        // Restart monitoring when start/end times change to recalculate update interval
+        $startHour.sink { [weak self] _ in self?.restartMonitoring() }.store(in: &cancellables)
+        $startMinute.sink { [weak self] _ in self?.restartMonitoring() }.store(in: &cancellables)
+        $endHour.sink { [weak self] _ in self?.restartMonitoring() }.store(in: &cancellables)
+        $endMinute.sink { [weak self] _ in self?.restartMonitoring() }.store(in: &cancellables)
+    }
+    
+    private func restartMonitoring() {
+        timer?.invalidate()
         startMonitoring()
     }
     
@@ -62,36 +74,33 @@ class BlurManager: ObservableObject {
     private func updateOverlayView() {
         guard let window = overlayWindow else { return }
         
-        // Create a binding to intensity for use in SwiftUI views
-        let intensityBinding = Binding<Double>(
-            get: { self.intensity },
-            set: { self.intensity = $0 }
-        )
-        
-        let contentView: AnyView
-        switch selectedMode {
-        case .blur:
-            contentView = AnyView(BlurOverlayContainer(blurIntensity: intensityBinding))
-        case .pixel:
-            contentView = AnyView(PixelFreezeView(intensity: intensityBinding))
-        case .pixelBlackout:
-            contentView = AnyView(PixelBlackoutView(intensity: intensityBinding))
-        case .sleepyEmoji:
-            contentView = AnyView(SleepyEmojiView(intensity: intensityBinding))
-        case .distortion:
-            contentView = AnyView(DistortionView(intensity: intensityBinding))
-        case .messages:
-            contentView = AnyView(MessagesView(intensity: intensityBinding))
-        case .sideSwipe:
-            contentView = AnyView(SideSwipeView(intensity: intensityBinding))
-        }
-        
-        window.contentView = NSHostingView(rootView: contentView)
+        // Create a wrapper view that observes this BlurManager to ensure updates
+        let wrapperView = OverlayWrapperView(blurManager: self)
+        window.contentView = NSHostingView(rootView: wrapperView)
     }
     
     private func startMonitoring() {
-        timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+        // Calculate update interval to get exactly 600 updates between start and end time
+        let startMinutes = startHour * 60 + startMinute
+        let endMinutes = endHour * 60 + endMinute
+        let durationMinutes = Double(endMinutes - startMinutes)
+        
+        // If duration is 0 or negative, use a default interval
+        let updateInterval: TimeInterval
+        if durationMinutes > 0 {
+            // 600 updates over the duration (convert minutes to seconds)
+            updateInterval = (durationMinutes * 60.0) / 600.0
+        } else {
+            // Default to checking every 6 seconds if duration is invalid
+            updateInterval = 6.0
+        }
+        
+        timer = Timer.scheduledTimer(withTimeInterval: updateInterval, repeats: true) { [weak self] _ in
             self?.updateIntensity()
+        }
+        // Add to common run loop mode so it fires even during UI interactions
+        if let timer = timer {
+            RunLoop.main.add(timer, forMode: .common)
         }
         updateIntensity()
     }
@@ -151,6 +160,7 @@ class BlurManager: ObservableObject {
         testTimer = nil
         
         // Reset intensity and show window
+        isManualMode = false // Exit manual mode for test
         intensity = 0.0
         isTesting = true
         testStartTime = Date()
@@ -161,6 +171,7 @@ class BlurManager: ObservableObject {
         let duration: TimeInterval = 30.0
         let updateInterval: TimeInterval = 0.05 // Update 20 times per second for smooth animation
         
+        // Create timer on main run loop to ensure UI updates work
         testTimer = Timer.scheduledTimer(withTimeInterval: updateInterval, repeats: true) { [weak self] timer in
             guard let self = self,
                   let startTime = self.testStartTime else {
@@ -172,18 +183,26 @@ class BlurManager: ObservableObject {
             let progress = min(elapsed / duration, 1.0)
             
             // Apply the selected acceleration curve to the progress
-            self.intensity = self.accelerationCurve.apply(progress)
+            // Update on main thread to ensure SwiftUI updates
+            DispatchQueue.main.async {
+                self.intensity = self.accelerationCurve.apply(progress)
+            }
             
             // When test is complete, reset and resume normal monitoring
             if progress >= 1.0 {
                 timer.invalidate()
-                self.testTimer = nil
-                self.isTesting = false
-                self.testStartTime = nil
-                // Resume normal intensity updates
-                self.updateIntensity()
+                DispatchQueue.main.async {
+                    self.testTimer = nil
+                    self.isTesting = false
+                    self.testStartTime = nil
+                    // Resume normal intensity updates
+                    self.updateIntensity()
+                }
             }
         }
+        
+        // Ensure timer fires even when scrolling/interacting
+        RunLoop.main.add(testTimer!, forMode: .common)
     }
     
     func setManualIntensity(_ value: Double) {
