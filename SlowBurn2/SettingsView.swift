@@ -97,6 +97,7 @@ struct SettingsView: View {
                         Spacer()
                         Toggle("", isOn: $blurManager.scheduleEnabled)
                             .labelsHidden()
+                            .toggleStyle(.switch)
                     }
                     
                     HStack {
@@ -142,25 +143,31 @@ struct SettingsView: View {
                     }
                     
                     // Days of the week checkboxes
-                    HStack(spacing: 8) {
-                        ForEach(0..<7) { dayIndex in
-                            let dayLabels = ["S", "M", "T", "W", "T", "F", "S"]
-                            Button(action: {
-                                if blurManager.enabledDays.contains(dayIndex) {
-                                    blurManager.enabledDays.remove(dayIndex)
-                                } else {
-                                    blurManager.enabledDays.insert(dayIndex)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Days to run")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        
+                        HStack(spacing: 8) {
+                            ForEach(0..<7) { dayIndex in
+                                let dayLabels = ["S", "M", "T", "W", "T", "F", "S"]
+                                Button(action: {
+                                    if blurManager.enabledDays.contains(dayIndex) {
+                                        blurManager.enabledDays.remove(dayIndex)
+                                    } else {
+                                        blurManager.enabledDays.insert(dayIndex)
+                                    }
+                                }) {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: blurManager.enabledDays.contains(dayIndex) ? "checkmark.square.fill" : "square")
+                                            .foregroundColor(blurManager.enabledDays.contains(dayIndex) ? .blue : .secondary)
+                                        Text(dayLabels[dayIndex])
+                                            .font(.caption)
+                                            .foregroundColor(.primary)
+                                    }
                                 }
-                            }) {
-                                HStack(spacing: 4) {
-                                    Image(systemName: blurManager.enabledDays.contains(dayIndex) ? "checkmark.square.fill" : "square")
-                                        .foregroundColor(blurManager.enabledDays.contains(dayIndex) ? .blue : .secondary)
-                                    Text(dayLabels[dayIndex])
-                                        .font(.caption)
-                                        .foregroundColor(.primary)
-                                }
+                                .buttonStyle(.plain)
                             }
-                            .buttonStyle(.plain)
                         }
                     }
                     .padding(.top, 4)

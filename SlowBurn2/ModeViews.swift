@@ -207,12 +207,21 @@ struct PixelFreezeView: View {
             return
         }
         
+        // If intensity changed significantly (more than 20%), regenerate from scratch
+        // This ensures manual control works properly
+        let intensityDelta = abs(newIntensity - oldIntensity)
+        if intensityDelta > 0.2 || oldIntensity == 0.0 {
+            regeneratePixelsForIntensity(newIntensity)
+            lastIntensity = newIntensity
+            return
+        }
+        
         let maxPixels = calculateMaxPixels()
         let targetCount = Int(newIntensity * Double(maxPixels))
         let currentCount = frozenPixels.count
         
-        // Only add pixels if intensity increased - never remove existing pixels
         if targetCount > currentCount {
+            // Add pixels if intensity increased
             let toAdd = min(targetCount - currentCount, 500)
             for _ in 0..<toAdd {
                 if let position = findUnoccupiedPosition() {
@@ -223,9 +232,33 @@ struct PixelFreezeView: View {
                     break
                 }
             }
+        } else if targetCount < currentCount {
+            // Remove pixels if intensity decreased
+            let toRemove = currentCount - targetCount
+            // Remove from the end (most recently added)
+            frozenPixels.removeLast(min(toRemove, frozenPixels.count))
+            // Rebuild grid from remaining pixels
+            frozenGrid = Set(frozenPixels.map { gridKey(for: $0.position) })
         }
         
         lastIntensity = newIntensity
+    }
+    
+    private func regeneratePixelsForIntensity(_ targetIntensity: Double) {
+        let maxPixels = calculateMaxPixels()
+        let targetCount = Int(targetIntensity * Double(maxPixels))
+        frozenPixels = []
+        frozenGrid = []
+        
+        for _ in 0..<targetCount {
+            if let position = findUnoccupiedPosition() {
+                let color = generateFrozenColor()
+                frozenPixels.append((id: UUID(), position: position, color: color))
+                frozenGrid.insert(gridKey(for: position))
+            } else {
+                break
+            }
+        }
     }
 }
 
@@ -348,26 +381,56 @@ struct PixelBlackoutView: View {
             return
         }
         
+        // If intensity changed significantly (more than 20%), regenerate from scratch
+        // This ensures manual control works properly
+        let intensityDelta = abs(newIntensity - oldIntensity)
+        if intensityDelta > 0.2 || oldIntensity == 0.0 {
+            regeneratePixelsForIntensity(newIntensity)
+            lastIntensity = newIntensity
+            return
+        }
+        
         let maxPixels = calculateMaxPixels()
         let targetCount = Int(newIntensity * Double(maxPixels))
         let currentCount = blackedPixels.count
         
-        // Only add pixels if intensity increased - never remove existing pixels
         if targetCount > currentCount {
-            let toAdd = min(targetCount - currentCount, 500) // Add up to 500 per update
+            // Add pixels if intensity increased
+            let toAdd = min(targetCount - currentCount, 500)
             for _ in 0..<toAdd {
                 if let position = findUnoccupiedPosition() {
                     blackedPixels.append((id: UUID(), position: position))
                     occupiedPositions.insert(gridKey(for: position))
                 } else {
-                    // No more positions available (should only happen at 100%)
                     break
                 }
             }
+        } else if targetCount < currentCount {
+            // Remove pixels if intensity decreased
+            let toRemove = currentCount - targetCount
+            // Remove from the end (most recently added)
+            blackedPixels.removeLast(min(toRemove, blackedPixels.count))
+            // Rebuild occupied positions from remaining pixels
+            occupiedPositions = Set(blackedPixels.map { gridKey(for: $0.position) })
         }
-        // Note: We don't remove pixels when intensity decreases - pixels stay "dead"
         
         lastIntensity = newIntensity
+    }
+    
+    private func regeneratePixelsForIntensity(_ targetIntensity: Double) {
+        let maxPixels = calculateMaxPixels()
+        let targetCount = Int(targetIntensity * Double(maxPixels))
+        blackedPixels = []
+        occupiedPositions = []
+        
+        for _ in 0..<targetCount {
+            if let position = findUnoccupiedPosition() {
+                blackedPixels.append((id: UUID(), position: position))
+                occupiedPositions.insert(gridKey(for: position))
+            } else {
+                break
+            }
+        }
     }
 }
 
