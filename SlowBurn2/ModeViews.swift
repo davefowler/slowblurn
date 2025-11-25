@@ -71,21 +71,47 @@ struct ConfettiView: View {
     }
 }
 
-// MARK: - Pixel Freeze Mode (captures actual screen colors)
+// MARK: - Pixel Freeze Mode (tracks frozen pixels with 2D grid)
 struct PixelFreezeView: View {
     @Binding var intensity: Double
     @State private var frozenPixels: [(id: UUID, position: CGPoint, color: Color)] = []
-    @State private var occupiedPositions: Set<String> = []
+    @State private var frozenGrid: Set<String> = [] // 2D grid tracking frozen positions
     @State private var currentSize: CGSize = .zero
     @State private var lastIntensity: Double = 0.0
-    @State private var screenImage: NSImage?
     
     private let pixelSize: CGFloat = 5
+    
+    // Generate a "frozen" color - mix of blues/whites to simulate frozen effect
+    private func generateFrozenColor() -> Color {
+        let random = Double.random(in: 0...1)
+        if random < 0.3 {
+            // Light blue/cyan
+            return Color(
+                red: 0.7 + Double.random(in: 0...0.3),
+                green: 0.8 + Double.random(in: 0...0.2),
+                blue: 0.9 + Double.random(in: 0...0.1)
+            )
+        } else if random < 0.6 {
+            // White/light gray
+            return Color(
+                red: 0.8 + Double.random(in: 0...0.2),
+                green: 0.8 + Double.random(in: 0...0.2),
+                blue: 0.8 + Double.random(in: 0...0.2)
+            )
+        } else {
+            // Slight blue tint
+            return Color(
+                red: 0.6 + Double.random(in: 0...0.4),
+                green: 0.7 + Double.random(in: 0...0.3),
+                blue: 0.85 + Double.random(in: 0...0.15)
+            )
+        }
+    }
     
     var body: some View {
         GeometryReader { geometry in
             ZStack {
-                // Frozen pixels with their actual screen colors
+                // Frozen pixels
                 ForEach(frozenPixels, id: \.id) { pixel in
                     Rectangle()
                         .fill(pixel.color)
@@ -106,77 +132,10 @@ struct PixelFreezeView: View {
             .onAppear {
                 currentSize = geometry.size
                 lastIntensity = intensity
-                captureScreen()
                 updateFrozenPixels(oldIntensity: 0.0, newIntensity: intensity)
             }
         }
         .ignoresSafeArea()
-    }
-    
-    private func captureScreen() {
-        // Capture all screens
-        var totalRect = CGRect.zero
-        for screen in NSScreen.screens {
-            totalRect = totalRect.union(screen.frame)
-        }
-        
-        // Capture screen content (what's behind our overlay)
-        // Use optionOnScreenBelowWindow to get content below our overlay window
-        if let cgImage = CGWindowListCreateImage(totalRect, .optionOnScreenBelowWindow, kCGNullWindowID, .bestResolution) {
-            screenImage = NSImage(cgImage: cgImage, size: totalRect.size)
-        }
-    }
-    
-    private func getColorAt(position: CGPoint) -> Color {
-        guard let image = screenImage,
-              let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
-            return Color.gray.opacity(0.5) // Fallback color
-        }
-        
-        // Get the image size
-        let imageWidth = CGFloat(cgImage.width)
-        let imageHeight = CGFloat(cgImage.height)
-        
-        guard imageWidth > 0 && imageHeight > 0 else { return Color.gray.opacity(0.5) }
-        
-        // Convert view coordinates to image coordinates
-        // Need to account for screen origin (usually bottom-left for Core Graphics)
-        let screen = NSScreen.main ?? NSScreen.screens.first
-        let screenHeight = screen?.frame.height ?? imageHeight
-        
-        // Convert Y coordinate (SwiftUI uses top-left, CG uses bottom-left)
-        let imageX = Int(position.x * (imageWidth / currentSize.width))
-        let imageY = Int((screenHeight - position.y) * (imageHeight / screenHeight))
-        
-        guard imageX >= 0 && imageX < Int(imageWidth) && imageY >= 0 && imageY < Int(imageHeight) else {
-            return Color.gray.opacity(0.5)
-        }
-        
-        // Create a bitmap context to read the pixel
-        let colorSpace = CGColorSpaceCreateDeviceRGB()
-        var pixelData: [UInt8] = [0, 0, 0, 255]
-        
-        guard let context = CGContext(
-            data: &pixelData,
-            width: 1,
-            height: 1,
-            bitsPerComponent: 8,
-            bytesPerRow: 4,
-            space: colorSpace,
-            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-        ) else {
-            return Color.gray.opacity(0.5)
-        }
-        
-        // Draw the image offset so we sample the right pixel
-        context.draw(cgImage, in: CGRect(x: -CGFloat(imageX), y: -CGFloat(imageY), width: imageWidth, height: imageHeight))
-        
-        // Convert to SwiftUI Color (RGBA format)
-        let red = Double(pixelData[0]) / 255.0
-        let green = Double(pixelData[1]) / 255.0
-        let blue = Double(pixelData[2]) / 255.0
-        
-        return Color(red: red, green: green, blue: blue)
     }
     
     private func gridKey(for position: CGPoint) -> String {
@@ -193,17 +152,16 @@ struct PixelFreezeView: View {
     }
     
     private func regeneratePixelsForNewSize() {
-        captureScreen() // Re-capture for new size
         let maxPixels = calculateMaxPixels()
         let targetCount = Int(intensity * Double(maxPixels))
         frozenPixels = []
-        occupiedPositions = []
+        frozenGrid = []
         
         for _ in 0..<targetCount {
             if let position = findUnoccupiedPosition() {
-                let color = getColorAt(position: position)
+                let color = generateFrozenColor()
                 frozenPixels.append((id: UUID(), position: position, color: color))
-                occupiedPositions.insert(gridKey(for: position))
+                frozenGrid.insert(gridKey(for: position))
             }
         }
     }
@@ -215,7 +173,7 @@ struct PixelFreezeView: View {
         let gridHeight = Int(currentSize.height / pixelSize)
         let totalPositions = gridWidth * gridHeight
         
-        if occupiedPositions.count >= totalPositions {
+        if frozenGrid.count >= totalPositions {
             return nil
         }
         
@@ -227,7 +185,7 @@ struct PixelFreezeView: View {
             let gridY = Int.random(in: 0..<gridHeight)
             let key = "\(gridX),\(gridY)"
             
-            if !occupiedPositions.contains(key) {
+            if !frozenGrid.contains(key) {
                 let x = CGFloat(gridX) * pixelSize + pixelSize / 2
                 let y = CGFloat(gridY) * pixelSize + pixelSize / 2
                 return CGPoint(x: x, y: y)
@@ -244,14 +202,9 @@ struct PixelFreezeView: View {
         
         if newIntensity <= 0 {
             frozenPixels = []
-            occupiedPositions = []
+            frozenGrid = []
             lastIntensity = 0.0
             return
-        }
-        
-        // Capture screen periodically to get fresh colors
-        if Int(newIntensity * 100) % 10 == 0 && Int(oldIntensity * 100) % 10 != 0 {
-            captureScreen()
         }
         
         let maxPixels = calculateMaxPixels()
@@ -263,9 +216,9 @@ struct PixelFreezeView: View {
             let toAdd = min(targetCount - currentCount, 500)
             for _ in 0..<toAdd {
                 if let position = findUnoccupiedPosition() {
-                    let color = getColorAt(position: position)
+                    let color = generateFrozenColor()
                     frozenPixels.append((id: UUID(), position: position, color: color))
-                    occupiedPositions.insert(gridKey(for: position))
+                    frozenGrid.insert(gridKey(for: position))
                 } else {
                     break
                 }
@@ -486,10 +439,10 @@ struct DistortionView: View {
             ZStack {
                 // Background darkening
                 Rectangle()
-                    .fill(Color.black.opacity(intensity * 0.3))
+                    .fill(Color.black.opacity(intensity * 0.4))
                 
-                // Multiple distortion layers
-                ForEach(0..<max(1, Int(intensity * 15)), id: \.self) { index in
+                // Multiple distortion layers - more layers for stronger effect
+                ForEach(0..<max(1, Int(intensity * 25)), id: \.self) { index in
                     DistortionLayer(intensity: intensity, index: index)
                 }
             }
@@ -506,27 +459,42 @@ struct DistortionLayer: View {
     var body: some View {
         GeometryReader { geometry in
             Canvas { context, size in
-                // Create wavy distortion effect
-                let waveCount = 5.0 + intensity * 15.0
-                let amplitude = intensity * 80.0
+                // Create wavy distortion effect - much stronger
+                let waveCount = 3.0 + intensity * 20.0 // More waves
+                let amplitude = intensity * 150.0 // Much larger amplitude (was 80)
+                let phaseOffset = Double(index) * 0.8 // More variation between layers
                 
-                var path = Path()
-                for y in stride(from: 0, through: size.height, by: 8) {
-                    let wave = sin((Double(y) / size.height) * waveCount * .pi * 2.0 + Double(index) * 0.5) * amplitude
-                    let x = size.width / 2.0 + wave
+                // Draw multiple wavy lines across the screen
+                for lineIndex in 0..<5 {
+                    var path = Path()
+                    let linePhase = phaseOffset + Double(lineIndex) * 0.3
                     
-                    if y == 0 {
-                        path.move(to: CGPoint(x: x, y: y))
-                    } else {
-                        path.addLine(to: CGPoint(x: x, y: y))
+                    for y in stride(from: 0, through: size.height, by: 4) {
+                        // Horizontal wave
+                        let waveX = sin((Double(y) / size.height) * waveCount * .pi * 2.0 + linePhase) * amplitude
+                        let x = size.width / 2.0 + waveX
+                        
+                        // Also add vertical wave component for more distortion
+                        let waveY = cos((Double(y) / size.height) * waveCount * .pi * 1.5 + linePhase) * amplitude * 0.3
+                        let finalY = y + waveY
+                        
+                        if y == 0 {
+                            path.move(to: CGPoint(x: x, y: finalY))
+                        } else {
+                            path.addLine(to: CGPoint(x: x, y: finalY))
+                        }
                     }
+                    
+                    // Draw with varying colors and opacity for more visibility
+                    let opacity = 0.6 + (Double(index + lineIndex) * 0.05).truncatingRemainder(dividingBy: 0.4)
+                    let colorIndex = (index + lineIndex) % 3
+                    let color: Color = colorIndex == 0 ? .cyan : (colorIndex == 1 ? .white : .blue)
+                    context.stroke(path, with: .color(color.opacity(opacity)), lineWidth: 2 + intensity * 3)
                 }
-                
-                context.stroke(path, with: .color(.white.opacity(0.5)), lineWidth: 3)
             }
         }
-        .blur(radius: intensity * 40)
-        .opacity(intensity * 0.8)
+        .blur(radius: intensity * 60) // More blur for stronger effect
+        .opacity(intensity * 0.9) // More visible
     }
 }
 
@@ -614,18 +582,18 @@ struct SideSwipeView: View {
     var body: some View {
         GeometryReader { geometry in
             HStack(spacing: 0) {
-                // Rainbow gradient swipe
+                Spacer()
+                
+                // Rainbow gradient swipe - comes from right to left
                 LinearGradient(
                     colors: [
                         .red, .orange, .yellow, .green, .blue, .indigo, .purple
                     ],
-                    startPoint: .leading,
-                    endPoint: .trailing
+                    startPoint: .trailing,
+                    endPoint: .leading
                 )
                 .frame(width: geometry.size.width * intensity)
                 .opacity(0.7 + intensity * 0.3)
-                
-                Spacer()
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
         }

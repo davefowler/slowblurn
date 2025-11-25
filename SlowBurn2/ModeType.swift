@@ -1,6 +1,7 @@
 import Foundation
 
 enum ModeType: String, CaseIterable, Identifiable {
+    case random = "Random"
     case blur = "Blur"
     case confetti = "Confetti"
     case pixelFreeze = "Pixel Freeze"
@@ -12,8 +13,27 @@ enum ModeType: String, CaseIterable, Identifiable {
     
     var id: String { rawValue }
     
+    // All modes except Random
+    static var nonRandomModes: [ModeType] {
+        return [.blur, .confetti, .pixelFreeze, .pixelBlackout, .sleepyEmoji, .distortion, .messages, .sideSwipe]
+    }
+    
+    // Get a random mode based on the day (consistent for the entire day)
+    static func randomModeForToday() -> ModeType {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        let dayOfYear = calendar.ordinality(of: .day, in: .year, for: today) ?? 0
+        
+        // Use day of year as seed to get consistent mode for the day
+        let modes = nonRandomModes
+        let index = dayOfYear % modes.count
+        return modes[index]
+    }
+    
     var description: String {
         switch self {
+        case .random:
+            return "Picks a different mode each day"
         case .blur:
             return "Gradual blur effect"
         case .confetti:
@@ -36,10 +56,8 @@ enum ModeType: String, CaseIterable, Identifiable {
 
 enum AccelerationCurve: String, CaseIterable, Identifiable {
     case linear = "Linear"
-    case easeIn = "Ease In"
-    case easeOut = "Ease Out"
-    case easeInOut = "Ease In/Out"
     case exponential = "Exponential"
+    case logarithmic = "Logarithmic"
     
     var id: String { rawValue }
     
@@ -48,16 +66,19 @@ enum AccelerationCurve: String, CaseIterable, Identifiable {
         switch self {
         case .linear:
             return progress
-        case .easeIn:
-            return progress * progress
-        case .easeOut:
-            return 1.0 - (1.0 - progress) * (1.0 - progress)
-        case .easeInOut:
-            return progress < 0.5
-                ? 2.0 * progress * progress
-                : 1.0 - pow(-2.0 * progress + 2.0, 2.0) / 2.0
         case .exponential:
+            // Starts slow, accelerates rapidly at the end
             return progress < 0.0 ? 0.0 : pow(2.0, 10.0 * (progress - 1.0))
+        case .logarithmic:
+            // Starts fast, slows down at the end (inverse of exponential)
+            if progress <= 0.0 {
+                return 0.0
+            } else if progress >= 1.0 {
+                return 1.0
+            } else {
+                // Logarithmic curve: log10(1 + 9 * progress) / log10(10)
+                return log10(1.0 + 9.0 * progress) / log10(10.0)
+            }
         }
     }
 }

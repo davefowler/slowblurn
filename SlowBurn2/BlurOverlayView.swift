@@ -13,7 +13,10 @@ struct OverlayWrapperView: View {
         )
         
         Group {
-            switch blurManager.selectedMode {
+            switch blurManager.resolvedMode {
+            case .random:
+                // This shouldn't happen, but fallback to blur
+                BlurOverlayContainer(blurIntensity: intensityBinding)
             case .blur:
                 BlurOverlayContainer(blurIntensity: intensityBinding)
             case .confetti:
@@ -69,32 +72,34 @@ struct BlurOverlayContainer: View {
     var body: some View {
         GeometryReader { geometry in
             ZStack {
-                // Use SwiftUI's blur modifier - scaled more gradually
-                // Create layers with increasing blur radius, but scale down the intensity
-                let blurRadius = blurIntensity * 30 // Max 30 point blur (was 100)
-                let layerCount = max(1, Int(blurIntensity * 5)) // Max 5 layers (was 20)
+                // Base blur layer - gradually increases from 0
+                Rectangle()
+                    .fill(Color.white.opacity(0.1))
+                    .blur(radius: blurIntensity * 50)
+                    .opacity(blurIntensity)
                 
-                ForEach(0..<layerCount, id: \.self) { index in
+                // Additional blur layers for stronger effect at higher intensities
+                // Use continuous scaling instead of discrete steps
+                let additionalLayers = max(0, Int(blurIntensity * 8)) // Up to 8 layers
+                ForEach(0..<additionalLayers, id: \.self) { index in
                     Rectangle()
-                        .fill(Color.white.opacity(0.05))
-                        .blur(radius: blurRadius / Double(layerCount) * Double(index + 1))
-                        .opacity(blurIntensity) // Linear opacity scaling
+                        .fill(Color.white.opacity(0.08))
+                        .blur(radius: blurIntensity * 40 + Double(index) * 10)
+                        .opacity(blurIntensity * 0.7)
                 }
                 
-                // Additional darkening layer - much more gradual
+                // Darkening layer - gradually increases
                 Rectangle()
-                    .fill(Color.black.opacity(blurIntensity * 0.3)) // Was 0.8
+                    .fill(Color.black.opacity(blurIntensity * 0.5))
                 
-                // Extra blur layers using NSVisualEffectView - only at higher intensities
-                if blurIntensity > 0.6 {
-                    let effectLayerCount = Int((blurIntensity - 0.6) * 2.5) // Only 0-1 layers between 60-100%
-                    ForEach(0..<effectLayerCount, id: \.self) { _ in
-                        BlurOverlayView(blurIntensity: Binding(
-                            get: { blurIntensity },
-                            set: { blurIntensity = $0 }
-                        ))
-                        .opacity(blurIntensity)
-                    }
+                // NSVisualEffectView layers - start appearing earlier and scale continuously
+                let effectLayerCount = max(0, Int(blurIntensity * 4)) // Up to 4 layers, starts at 25% intensity
+                ForEach(0..<effectLayerCount, id: \.self) { _ in
+                    BlurOverlayView(blurIntensity: Binding(
+                        get: { blurIntensity },
+                        set: { blurIntensity = $0 }
+                    ))
+                    .opacity(blurIntensity * 0.8)
                 }
             }
             .frame(width: geometry.size.width, height: geometry.size.height)

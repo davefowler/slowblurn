@@ -6,12 +6,22 @@ class BlurManager: ObservableObject {
     static let shared = BlurManager()
     
     @Published var intensity: Double = 0.0
-    @Published var selectedMode: ModeType = .blur
-    @Published var accelerationCurve: AccelerationCurve = .easeInOut
+    @Published var selectedMode: ModeType = .random
+    @Published var accelerationCurve: AccelerationCurve = .linear
+    
+    // Resolve random mode to actual mode for today
+    var resolvedMode: ModeType {
+        if selectedMode == .random {
+            return ModeType.randomModeForToday()
+        }
+        return selectedMode
+    }
     @Published var startHour: Int = 21 // 9pm
     @Published var startMinute: Int = 0
     @Published var endHour: Int = 22 // 10pm
     @Published var endMinute: Int = 0
+    @Published var scheduleEnabled: Bool = true
+    @Published var enabledDays: Set<Int> = [0, 1, 2, 3, 4, 5, 6] // Sunday = 0, Monday = 1, ..., Saturday = 6
     
     private var overlayWindow: NSWindow?
     private var timer: Timer?
@@ -109,11 +119,29 @@ class BlurManager: ObservableObject {
         // Don't update if we're in test mode or manual mode
         guard !isTesting && !isManualMode else { return }
         
+        // Check if schedule is enabled
+        guard scheduleEnabled else {
+            intensity = 0.0
+            overlayWindow?.orderOut(nil)
+            return
+        }
+        
         let calendar = Calendar.current
         let now = Date()
-        let components = calendar.dateComponents([.hour, .minute], from: now)
+        let components = calendar.dateComponents([.weekday, .hour, .minute], from: now)
         
-        guard let hour = components.hour, let minute = components.minute else { return }
+        guard let weekday = components.weekday, let hour = components.hour, let minute = components.minute else { return }
+        
+        // weekday is 1-7 (Sunday = 1, Monday = 2, ..., Saturday = 7)
+        // Convert to 0-6 (Sunday = 0, Monday = 1, ..., Saturday = 6)
+        let dayOfWeek = (weekday - 1) % 7
+        
+        // Check if today is an enabled day
+        guard enabledDays.contains(dayOfWeek) else {
+            intensity = 0.0
+            overlayWindow?.orderOut(nil)
+            return
+        }
         
         // Convert to minutes since midnight for easier calculation
         let currentMinutes = hour * 60 + minute
